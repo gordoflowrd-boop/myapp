@@ -11,3 +11,4 @@ void main() {
     expect(find.text('SUPERBETT POS'), findsOneWidget);
   });
 }
+
