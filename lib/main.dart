@@ -175,7 +175,8 @@ class MenuPage extends StatelessWidget {
                     leading: Icon(menuItems[index]['icon'], color: Colors.blueGrey),
                     title: Text(menuItems[index]['title']),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onPressed: () {
+                    // ✅ CORREGIDO: onPressed → onTap
+                    onTap: () {
                       if (menuItems[index]['title'] == 'Venta') {
                         Navigator.push(
                           context,
@@ -341,6 +342,7 @@ class _VentaPageState extends State<VentaPage> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
+                            // ✅ MEJORADO: formato con 2 decimales
                             child: Text("\$${_totalTicket.toStringAsFixed(2)}", style: const TextStyle(color: Colors.lime, fontWeight: FontWeight.bold, fontSize: 16), textAlign: TextAlign.center),
                           ),
                         )
@@ -372,7 +374,8 @@ class _VentaPageState extends State<VentaPage> {
                         children: [
                           Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                             Text("${item['modalidad']} ${item['numeros']}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text("\$${item['monto']}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                            // ✅ MEJORADO: monto con 2 decimales
+                            Text("\$${(item['monto'] as double).toStringAsFixed(2)}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                           ])),
                           Positioned(right: -10, top: -10, child: IconButton(icon: const Icon(Icons.cancel, color: Colors.red, size: 18), onPressed: () {
                             setState(() { _totalTicket -= _listaJugadas[index]['monto']; _listaJugadas.removeAt(index); });
