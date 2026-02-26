@@ -752,7 +752,7 @@ class _TicketDialog extends StatelessWidget {
     sb.writeln("============================");
     if (!_esMult) { sb.writeln("Ticket # ${p['numero_ticket']}");
       if (p['pin']!=null) sb.writeln("PIN: ${p['pin']}"); }
-    if (_esSP) { for (final n in (p['loterias_sp'] as List???[])) sb.writeln(n); }
+    if (_esSP) { for (final n in (p['loterias_sp'] as List<dynamic>? ?? [])) sb.writeln(n); }
     else if (_esMult) { for (final t in tickets) { sb.writeln("Ticket ${t['numero_ticket']}  ${t['loteria']}"); if (t['pin']!=null) sb.writeln("PIN: ${t['pin']}"); } }
     else sb.writeln(p['loteria']?.toString()??'');
     sb.writeln("Fecha: ${p['fecha']??''}");
@@ -794,7 +794,7 @@ class _TicketDialog extends StatelessWidget {
                   if (p['pin'] != null)
                     Text("PIN: ${p['pin']}", style: const TextStyle(fontSize: 17, letterSpacing: 4, color: Colors.purple, fontWeight: FontWeight.bold)),
                 ],
-                if (_esSP) ...((p['loterias_sp'] as List???[]).map((n)=>_il(n.toString())))
+                if (_esSP) ...((p['loterias_sp'] as List<dynamic>? ?? []).map((n)=>_il(n.toString())))
                 else if (_esMult) ...tickets.map((t)=>Column(children:[
                   _il("Ticket ${t['numero_ticket']}  ${t['loteria']}"),
                   if (t['pin']!=null) Text("PIN: ${t['pin']}", style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, letterSpacing: 3)),
@@ -858,3 +858,4 @@ class _TicketDialog extends StatelessWidget {
   Widget _il(String t) => Padding(padding: const EdgeInsets.symmetric(vertical: 1),
     child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)));
 }
+
