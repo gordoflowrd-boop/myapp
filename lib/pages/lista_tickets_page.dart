@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../helpers.dart';
 import 'anular_ticket_page.dart';
 import 'pagar_ticket_page.dart';
+import 'venta_page.dart';
 
 class ListaTicketsPage extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -188,7 +189,29 @@ class _ListaTicketsPageState extends State<ListaTicketsPage> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Row(children: [
               Expanded(child: ElevatedButton.icon(
-                onPressed: () => snack(context, "Copiar: próximamente"),
+                onPressed: () async {
+                  // Asegura que las jugadas estén en cache
+                  List<dynamic> jugadas = _jugadasCache[num] ?? [];
+                  if (jugadas.isEmpty) {
+                    try {
+                      final d = await apiFetch('/tickets/$num', widget.token);
+                      jugadas = d['jugadas'] ?? [];
+                      _jugadasCache[num] = jugadas;
+                      setState(() {});
+                    } catch (_) {}
+                  }
+                  if (!mounted) return;
+                  // Navega a VentaPage pasando las jugadas copiadas
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => VentaPage(
+                      userData:        widget.userData,
+                      token:           widget.token,
+                      jugadasIniciales: jugadas
+                          .map((j) => Map<String, dynamic>.from(j as Map))
+                          .toList(),
+                    ),
+                  ));
+                },
                 icon: const Icon(Icons.copy, size: 15),
                 label: const Text("Copiar", style: TextStyle(fontSize: 13)),
                 style: ElevatedButton.styleFrom(
