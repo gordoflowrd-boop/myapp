@@ -1,5 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../helpers.dart';
 
@@ -224,21 +228,23 @@ class _VentaPageState extends State<VentaPage> {
       )),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-        ElevatedButton(onPressed: () {
-          Navigator.pop(ctx);
-          for (final d in items) {
-            final permitido = double.tryParse(d['permitido']?.toString() ?? "0") ?? 0;
-            final num = d['numeros']?.toString() ?? d['numero']?.toString() ?? '';
-            final idx = _jugadas.indexWhere((j) => j.modalidad == d['modalidad'] && j.numeros == num);
-            if (idx == -1) continue;
-            if (permitido <= 0) { _jugadas.removeAt(idx); continue; }
-            final j = _jugadas[idx];
-            final pu = j.monto / j.cantidad;
-            j.cantidad = permitido.toInt();
-            j.monto    = double.parse((pu * permitido).toStringAsFixed(2));
-          }
-          setState(() {});
-        }, child: const Text("Actualizar")),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007BFF), foregroundColor: Colors.white),
+          onPressed: () {
+            Navigator.pop(ctx);
+            for (final d in items) {
+              final permitido = double.tryParse(d['permitido']?.toString() ?? "0") ?? 0;
+              final num = d['numeros']?.toString() ?? d['numero']?.toString() ?? '';
+              final idx = _jugadas.indexWhere((j) => j.modalidad == d['modalidad'] && j.numeros == num);
+              if (idx == -1) continue;
+              if (permitido <= 0) { _jugadas.removeAt(idx); continue; }
+              final j = _jugadas[idx];
+              final pu = j.monto / j.cantidad;
+              j.cantidad = permitido.toInt();
+              j.monto    = double.parse((pu * permitido).toStringAsFixed(2));
+            }
+            setState(() {});
+          }, child: const Text("Actualizar")),
       ],
     ));
   }
@@ -447,7 +453,6 @@ class _VentaPageState extends State<VentaPage> {
         const DropdownMenuItem(value: "MULTI",      child: Text("Multiple...",    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold))),
         const DropdownMenuItem(value: "SUPER_PALE", child: Text("Super Palé...", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold))),
       ].where((i) => i != null).fold<List<DropdownMenuItem<String>>>([], (prev, e) {
-        // deduplicar
         if (prev.any((x) => x.value == e.value)) return prev;
         return [...prev, e];
       }),
@@ -594,8 +599,14 @@ class _MixDialogState extends State<_MixDialog> {
     super.dispose();
   }
 
-  Set<String> _nums() => _cs.map((c) => c.text.trim().padLeft(2,'0'))
-      .where((n) => RegExp(r'^\d{2}$').hasMatch(n) && n != '00').toSet();
+  // ── FIX: permite '00' como número válido ──────────
+  Set<String> _nums() {
+    return _cs.map((c) {
+      final v = c.text.trim();
+      if (v.isEmpty) return '';           // campo vacío → ignorar
+      return v.padLeft(2, '0');           // '0' → '00', '5' → '05'
+    }).where((n) => RegExp(r'^\d{2}$').hasMatch(n)).toSet();
+  }
 
   Map<String, List<String>> _combinar(Set<String> n) {
     final l = n.toList();
@@ -728,6 +739,17 @@ class _TicketDialog extends StatelessWidget {
   final String banca;
   const _TicketDialog({required this.tickets, required this.banca});
 
+  // ── Orden fijo: Q → P → T → SP ────────────────────
+  static const _modOrder = {'Q': 0, 'P': 1, 'T': 2, 'SP': 3};
+
+  List _jugadasOrdenadas() {
+    final p = tickets.first;
+    final j = List.from(p['jugadas'] as List? ?? []);
+    j.sort((a, b) => (_modOrder[a['modalidad']] ?? 9)
+                   .compareTo(_modOrder[b['modalidad']] ?? 9));
+    return j;
+  }
+
   String _hora(String? h) {
     if (h == null || h.isEmpty) return '';
     final p = h.split(':');
@@ -740,22 +762,32 @@ class _TicketDialog extends StatelessWidget {
   bool get _esMult => tickets.length > 1;
   String get _tipo => _esSP ? 'Super Palé' : _esMult ? 'Múltiple' : 'Normal';
 
+  // ── Texto plano para compartir/copiar ─────────────
   String _texto() {
-    final p = tickets.first;
-    final j = (p['jugadas'] as List? ?? []);
+    final p   = tickets.first;
+    final j   = _jugadasOrdenadas();
     final tot = tickets.fold(0.0,(s,t)=>s+(double.tryParse(t['total_monto']?.toString()??"0")??0));
-    final sb = StringBuffer();
+    final sb  = StringBuffer();
     sb.writeln("============================");
     sb.writeln("        SUPERBETT");
     sb.writeln("        $banca");
     sb.writeln("        ($_tipo)");
     sb.writeln("============================");
-    if (!_esMult) { sb.writeln("Ticket # ${p['numero_ticket']}");
-      if (p['pin']!=null) sb.writeln("PIN: ${p['pin']}"); }
-    if (_esSP) { for (final n in (p['loterias_sp'] as List<dynamic>? ?? [])) sb.writeln(n); }
-    else if (_esMult) { for (final t in tickets) { sb.writeln("Ticket ${t['numero_ticket']}  ${t['loteria']}"); if (t['pin']!=null) sb.writeln("PIN: ${t['pin']}"); } }
-    else sb.writeln(p['loteria']?.toString()??'');
-    sb.writeln("Fecha: ${p['fecha']??''}");
+    if (!_esMult) {
+      sb.writeln("Ticket # ${p['numero_ticket']}");
+      if (p['pin'] != null) sb.writeln("PIN: ${p['pin']}");
+    }
+    if (_esSP) {
+      for (final n in (p['loterias_sp'] as List<dynamic>? ?? [])) sb.writeln(n);
+    } else if (_esMult) {
+      for (final t in tickets) {
+        sb.writeln("Ticket ${t['numero_ticket']}  ${t['loteria']}");
+        if (t['pin'] != null) sb.writeln("PIN: ${t['pin']}");
+      }
+    } else {
+      sb.writeln(p['loteria']?.toString() ?? '');
+    }
+    sb.writeln("Fecha: ${p['fecha'] ?? ''}");
     sb.writeln("Hora:  ${_hora(p['hora']?.toString())}");
     sb.writeln("----------------------------");
     sb.writeln("Tipo  Jugada    Cant  Monto");
@@ -769,93 +801,233 @@ class _TicketDialog extends StatelessWidget {
     return sb.toString();
   }
 
+  // ── Generar PDF bytes ─────────────────────────────
+  Future<Uint8List> _generatePdf() async {
+    final p   = tickets.first;
+    final j   = _jugadasOrdenadas();
+    final tot = tickets.fold(0.0,(s,t)=>s+(double.tryParse(t['total_monto']?.toString()??"0")??0));
+
+    final doc = pw.Document();
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat(80 * PdfPageFormat.mm,
+          (120 + j.length * 8).toDouble() * PdfPageFormat.mm),
+      margin: const pw.EdgeInsets.all(8 * PdfPageFormat.mm),
+      build: (ctx) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text("SuperBett", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          pw.Text(banca, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.Divider(thickness: 1.5),
+          pw.Text("($_tipo)", style: pw.TextStyle(fontSize: 10)),
+          pw.SizedBox(height: 4),
+          if (!_esMult) ...[
+            pw.Text("Ticket # ${p['numero_ticket']}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            if (p['pin'] != null)
+              pw.Text("PIN: ${p['pin']}", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          ],
+          if (_esSP) ...((p['loterias_sp'] as List? ?? []).map((n) =>
+              pw.Text(n.toString(), style: pw.TextStyle(fontWeight: pw.FontWeight.bold)))),
+          if (_esMult) ...tickets.map((t) => pw.Column(children: [
+            pw.Text("Ticket ${t['numero_ticket']}  ${t['loteria']}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            if (t['pin'] != null) pw.Text("PIN: ${t['pin']}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ])),
+          if (!_esSP && !_esMult)
+            pw.Text(p['loteria']?.toString() ?? '', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 4),
+          pw.Text("Fecha: ${p['fecha'] ?? ''}"),
+          pw.Text("Hora:  ${_hora(p['hora']?.toString())}"),
+          pw.Divider(),
+          // Header jugadas
+          pw.Row(children: [
+            pw.SizedBox(width: 22, child: pw.Text("Tipo", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Expanded(child: pw.Text("Jugada", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.SizedBox(width: 22, child: pw.Text("Cant", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.SizedBox(width: 32, child: pw.Text("Monto", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8), textAlign: pw.TextAlign.right)),
+          ]),
+          pw.Divider(thickness: 1),
+          // Jugadas ordenadas Q→P→T
+          ...j.map((d) => pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 1),
+            child: pw.Row(children: [
+              pw.SizedBox(width: 22, child: pw.Text(d['modalidad']?.toString() ?? '', style: const pw.TextStyle(fontSize: 9))),
+              pw.Expanded(child: pw.Text(d['numeros']?.toString() ?? '', style: const pw.TextStyle(fontSize: 9))),
+              pw.SizedBox(width: 22, child: pw.Text(d['cantidad']?.toString() ?? '', style: const pw.TextStyle(fontSize: 9))),
+              pw.SizedBox(width: 32, child: pw.Text(
+                "\$${double.tryParse(d['monto']?.toString() ?? '0')?.toStringAsFixed(2) ?? '0.00'}",
+                style: const pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.right)),
+            ]))),
+          pw.Divider(thickness: 1.5),
+          pw.Text("Total  \$${tot.toStringAsFixed(2)}",
+            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    ));
+    return doc.save();
+  }
+
+  // ── Acciones PDF ──────────────────────────────────
+  Future<void> _guardarPdf(BuildContext context) async {
+    try {
+      final bytes = await _generatePdf();
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'ticket_${tickets.first['numero_ticket']}.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error PDF: $e"), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  Future<void> _imprimirPdf(BuildContext context) async {
+    try {
+      final bytes = await _generatePdf();
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'ticket_${tickets.first['numero_ticket']}',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error imprimir: $e"), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p   = tickets.first;
-    final j   = (p['jugadas'] as List? ?? []);
+    final j   = _jugadasOrdenadas();   // ← siempre Q → P → T → SP
     final tot = tickets.fold(0.0,(s,t)=>s+(double.tryParse(t['total_monto']?.toString()??"0")??0));
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      insetPadding: const EdgeInsets.all(10),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        // Preview ticket
-        Flexible(child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(14,14,14,0), child:
-          Container(padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(border: Border.all(color: Colors.black45, width: 1.5, style: BorderStyle.solid)),
-            child: DefaultTextStyle(style: const TextStyle(fontFamily: 'monospace', color: Colors.black, fontSize: 13),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                const Text("SuperBett", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                Text(banca, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                Text("($_tipo)", style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                const Divider(thickness: 2, color: Colors.black),
-                if (!_esMult) ...[
-                  _il("Ticket # ${p['numero_ticket']}"),
-                  if (p['pin'] != null)
-                    Text("PIN: ${p['pin']}", style: const TextStyle(fontSize: 17, letterSpacing: 4, color: Colors.purple, fontWeight: FontWeight.bold)),
-                ],
-                if (_esSP) ...((p['loterias_sp'] as List<dynamic>? ?? []).map((n)=>_il(n.toString())))
-                else if (_esMult) ...tickets.map((t)=>Column(children:[
-                  _il("Ticket ${t['numero_ticket']}  ${t['loteria']}"),
-                  if (t['pin']!=null) Text("PIN: ${t['pin']}", style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, letterSpacing: 3)),
-                ]))
-                else _il(p['loteria']?.toString()??''),
-                _il("Fecha: ${p['fecha']??''}"),
-                _il("Hora:  ${_hora(p['hora']?.toString())}"),
-                const Divider(color: Colors.grey),
-                Row(children: const [
-                  SizedBox(width:28,child:Text("Tipo",style:TextStyle(fontWeight:FontWeight.bold))),
-                  Expanded(child:Text("Jugada",style:TextStyle(fontWeight:FontWeight.bold))),
-                  SizedBox(width:32,child:Text("Cant",style:TextStyle(fontWeight:FontWeight.bold))),
-                  SizedBox(width:52,child:Text("Monto",style:TextStyle(fontWeight:FontWeight.bold),textAlign:TextAlign.right)),
-                ]),
-                const Divider(thickness: 1.5, color: Colors.black),
-                ...j.map((d) => Padding(padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(children: [
-                    SizedBox(width:28,child:Text(d['modalidad']?.toString()??'',style:const TextStyle(color:Color(0xFF007BFF)))),
-                    Expanded(child:Text(d['numeros']?.toString()??'')),
-                    SizedBox(width:32,child:Text(d['cantidad']?.toString()??'')),
-                    SizedBox(width:52,child:Text("\$${double.tryParse(d['monto']?.toString()??"0")?.toStringAsFixed(2)}",textAlign:TextAlign.right)),
-                  ]))),
-                const Divider(thickness: 2, color: Colors.black),
-                Text("Total  \$${tot.toStringAsFixed(2)}",
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
-              ]),
-            ),
-          ),
-        )),
+      // ── FIX horizontal: limitar ancho máximo ──────
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
 
-        // Botones
-        Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-          Row(children: [
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () async {
-                await Share.share(_texto(), subject: "Ticket #${p['numero_ticket']}");
-              },
-              icon: const Icon(Icons.share, size: 17),
-              label: const Text("Compartir"),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF17A2B8), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 11)))),
-            const SizedBox(width: 8),
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: _texto()));
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Copiado ✓"), backgroundColor: Colors.green));
-              },
-              icon: const Icon(Icons.copy, size: 17),
-              label: const Text("Copiar"),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF28A745), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 11)))),
-          ]),
-          const SizedBox(height: 6),
-          SizedBox(width: double.infinity, child: ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 11)),
-            child: const Text("Cerrar", style: TextStyle(fontWeight: FontWeight.bold)))),
-        ])),
-      ]),
+          // ── Preview ticket ─────────────────────────
+          Flexible(child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(12,12,12,0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.black45, width: 1.5, style: BorderStyle.solid)),
+              child: DefaultTextStyle(
+                style: const TextStyle(fontFamily: 'monospace', color: Colors.black, fontSize: 12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  const Text("SuperBett", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                  Text(banca, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text("($_tipo)", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  const Divider(thickness: 2, color: Colors.black),
+                  if (!_esMult) ...[
+                    _il("Ticket # ${p['numero_ticket']}"),
+                    if (p['pin'] != null)
+                      Text("PIN: ${p['pin']}", style: const TextStyle(fontSize: 16, letterSpacing: 4, color: Colors.purple, fontWeight: FontWeight.bold)),
+                  ],
+                  if (_esSP) ...((p['loterias_sp'] as List<dynamic>? ?? []).map((n)=>_il(n.toString())))
+                  else if (_esMult) ...tickets.map((t)=>Column(children:[
+                    _il("Ticket ${t['numero_ticket']}  ${t['loteria']}"),
+                    if (t['pin']!=null) Text("PIN: ${t['pin']}", style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, letterSpacing: 3)),
+                  ]))
+                  else _il(p['loteria']?.toString()??''),
+                  _il("Fecha: ${p['fecha']??''}"),
+                  _il("Hora:  ${_hora(p['hora']?.toString())}"),
+                  const Divider(color: Colors.grey),
+                  // ── Encabezado tabla ───────────────
+                  Row(children: const [
+                    SizedBox(width:26, child:Text("Tipo",  style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    Expanded(child:Text("Jugada",          style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    SizedBox(width:30, child:Text("Cant",  style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    SizedBox(width:52, child:Text("Monto", style:TextStyle(fontWeight:FontWeight.bold, fontSize:11), textAlign:TextAlign.right)),
+                  ]),
+                  const Divider(thickness: 1.5, color: Colors.black),
+                  // ── Jugadas: Q primero, luego P, T ─
+                  ...j.map((d) => Padding(padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(children: [
+                      SizedBox(width:26, child:Text(d['modalidad']?.toString()??'',
+                          style:const TextStyle(color:Color(0xFF007BFF), fontSize:11))),
+                      Expanded(child:Text(d['numeros']?.toString()??'', style:const TextStyle(fontSize:11))),
+                      SizedBox(width:30, child:Text(d['cantidad']?.toString()??'', style:const TextStyle(fontSize:11))),
+                      SizedBox(width:52, child:Text(
+                        "\$${double.tryParse(d['monto']?.toString()??"0")?.toStringAsFixed(2)}",
+                        textAlign:TextAlign.right, style:const TextStyle(fontSize:11))),
+                    ]))),
+                  const Divider(thickness: 2, color: Colors.black),
+                  Text("Total  \$${tot.toStringAsFixed(2)}",
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.green)),
+                ]),
+              ),
+            ),
+          )),
+
+          // ── Botones ────────────────────────────────
+          Padding(padding: const EdgeInsets.all(10), child: Column(children: [
+            // Fila 1: Guardar PDF + Imprimir
+            Row(children: [
+              Expanded(child: ElevatedButton.icon(
+                onPressed: () => _guardarPdf(context),
+                icon: const Icon(Icons.picture_as_pdf, size: 16),
+                label: const Text("Guardar PDF"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF28A745), foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10)))),
+              const SizedBox(width: 7),
+              Expanded(child: ElevatedButton.icon(
+                onPressed: () => _imprimirPdf(context),
+                icon: const Icon(Icons.print, size: 16),
+                label: const Text("Imprimir"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6F42C1), foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10)))),
+            ]),
+            const SizedBox(height: 6),
+            // Fila 2: Compartir PDF + Copiar
+            Row(children: [
+              Expanded(child: ElevatedButton.icon(
+                onPressed: () async {
+                  final bytes = await _generatePdf();
+                  final filename = 'ticket_${p['numero_ticket']}.pdf';
+                  final xfile = XFile.fromData(bytes, mimeType: 'application/pdf', name: filename);
+                  await Share.shareXFiles([xfile], subject: "Ticket #${p['numero_ticket']}");
+                },
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text("Compartir PDF"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF17A2B8), foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10)))),
+              const SizedBox(width: 7),
+              Expanded(child: ElevatedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _texto()));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Copiado ✓"), backgroundColor: Colors.green));
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text("Copiar"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF28A745), foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10)))),
+            ]),
+            const SizedBox(height: 6),
+            // Fila 3: Cerrar
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 11)),
+              child: const Text("Cerrar", style: TextStyle(fontWeight: FontWeight.bold)))),
+          ])),
+        ]),
+      ),
     );
   }
 
   Widget _il(String t) => Padding(padding: const EdgeInsets.symmetric(vertical: 1),
     child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)));
 }
-
