@@ -102,7 +102,12 @@ class _VentaPageState extends State<VentaPage> {
     });
   }
 
-  double get _total => _jugadas.fold(0, (s, j) => s + j.monto);
+  // En modo múltiple cada jugada se vende N veces (una por lotería)
+  double get _total {
+    final base = _jugadas.fold(0.0, (s, j) => s + j.monto);
+    final mult = _jornadasSelec.length > 1 ? _jornadasSelec.length : 1;
+    return base * mult;
+  }
 
   // ── Ordenar dígitos (palé y tripleta) ─────────────
   String _sortNum(String n) {
@@ -120,6 +125,11 @@ class _VentaPageState extends State<VentaPage> {
       setState(() => _msg = "Jugada inválida (2, 4 o 6 dígitos)"); return;
     }
     if (cant <= 0) { setState(() => _msg = "Cantidad inválida"); return; }
+
+    // Super Palé solo acepta palés (4 dígitos = 2 números)
+    if (_superPaleIds.isNotEmpty && num.length != 4) {
+      setState(() => _msg = "Super Palé: solo Palés (4 dígitos)"); return;
+    }
 
     final mod = _superPaleIds.isNotEmpty ? "SP"
               : num.length == 2 ? "Q" : num.length == 4 ? "P" : "T";
@@ -283,7 +293,35 @@ class _VentaPageState extends State<VentaPage> {
       }
       if (!mounted) return;
       await showDialog(context: context, barrierDismissible: false,
-        builder: (_) => _TicketDialog(tickets: tickets, banca: _bancaNombre));
+        builder: (_) => _TicketDialog(
+          tickets: tickets,
+          banca: _bancaNombre,
+          onReusar: (jugadas) {
+            // Agrega las jugadas del ticket a la lista actual para re-vender
+            setState(() {
+              for (final j in jugadas) {
+                final lotId = _superPaleIds.isNotEmpty ? null
+                    : (_jornadasSelec.isNotEmpty ? _jornadaMap[_jornadasSelec.first] : null);
+                final precio = _getPrecio(lotId, j.modalidad);
+                final monto  = precio > 0 ? precio * j.cantidad : j.monto;
+                final existe = _jugadas.where(
+                    (x) => x.modalidad == j.modalidad && x.numeros == j.numeros);
+                if (existe.isNotEmpty) {
+                  existe.first.cantidad += j.cantidad;
+                  existe.first.monto    += monto;
+                } else {
+                  _jugadas.add(Jugada(
+                    modalidad: j.modalidad,
+                    numeros:   j.numeros,
+                    cantidad:  j.cantidad,
+                    monto:     monto,
+                  ));
+                }
+              }
+              _msg = "Jugadas cargadas ✓ — Edite y presione Vender";
+            });
+          },
+        ));
     } catch (e) { setState(() => _msg = "Error ticket: $e"); }
   }
 
@@ -755,13 +793,28 @@ class _MixDialogState extends State<_MixDialog> {
   }
 }
 
+// Modelo liviano para pasar jugadas de vuelta al formulario
+class _JugadaReusar {
+  final String modalidad;
+  final String numeros;
+  final int    cantidad;
+  final double monto;
+  const _JugadaReusar({required this.modalidad, required this.numeros,
+                       required this.cantidad,  required this.monto});
+}
+
 // ═════════════════════════════════════════════════════
 // DIALOG: TICKET
 // ═════════════════════════════════════════════════════
 class _TicketDialog extends StatelessWidget {
   final List<Map<String,dynamic>> tickets;
   final String banca;
-  const _TicketDialog({required this.tickets, required this.banca});
+  final void Function(List<_JugadaReusar>) onReusar;
+  const _TicketDialog({
+    required this.tickets,
+    required this.banca,
+    required this.onReusar,
+  });
 
   // ── Orden fijo: Q → P → T → SP ────────────────────
   static const _modOrder = {'Q': 0, 'P': 1, 'T': 2, 'SP': 3};
@@ -952,12 +1005,12 @@ class _TicketDialog extends StatelessWidget {
                   if (!_esMult) ...[
                     _il("Ticket # ${p['numero_ticket']}"),
                     if (p['pin'] != null)
-                      Text("PIN: ${p['pin']}", style: const TextStyle(fontSize: 16, letterSpacing: 4, color: Colors.purple, fontWeight: FontWeight.bold)),
+                      _il("PIN: ${p['pin']}"),
                   ],
                   if (_esSP) ...((p['loterias_sp'] as List<dynamic>? ?? []).map((n)=>_il(n.toString())))
                   else if (_esMult) ...tickets.map((t)=>Column(children:[
                     _il("Ticket ${t['numero_ticket']}  ${t['loteria']}"),
-                    if (t['pin']!=null) Text("PIN: ${t['pin']}", style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, letterSpacing: 3)),
+                    if (t['pin']!=null) _il("PIN: ${t['pin']}"),
                   ]))
                   else _il(p['loteria']?.toString()??''),
                   _il("Fecha: ${p['fecha']??''}"),
@@ -1022,7 +1075,7 @@ class _TicketDialog extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 10)))),
             ]),
             const SizedBox(height: 6),
-            // Fila 2: Compartir PDF + Copiar
+            // Fila 2: Compartir PDF + Reusar Jugadas
             Row(children: [
               Expanded(child: ElevatedButton.icon(
                 onPressed: () async {
@@ -1039,14 +1092,21 @@ class _TicketDialog extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(child: ElevatedButton.icon(
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: _texto()));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Copiado ✓"), backgroundColor: Colors.green));
+                  // Carga las jugadas del ticket de vuelta al formulario de venta
+                  final jugadasRaw = tickets.first['jugadas'] as List? ?? [];
+                  final jugadas = jugadasRaw.map((d) => _JugadaReusar(
+                    modalidad: d['modalidad']?.toString() ?? '',
+                    numeros:   d['numeros']?.toString()   ?? '',
+                    cantidad:  int.tryParse(d['cantidad']?.toString() ?? '0') ?? 0,
+                    monto:     double.tryParse(d['monto']?.toString() ?? '0') ?? 0,
+                  )).where((j) => j.modalidad.isNotEmpty && j.numeros.isNotEmpty).toList();
+                  Navigator.pop(context);   // cierra el dialog primero
+                  onReusar(jugadas);        // luego pasa las jugadas al padre
                 },
-                icon: const Icon(Icons.copy, size: 16),
-                label: const Text("Copiar"),
+                icon: const Icon(Icons.replay, size: 16),
+                label: const Text("Reusar"),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF28A745), foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFF6F42C1), foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 10)))),
             ]),
             const SizedBox(height: 6),
