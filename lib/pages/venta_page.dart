@@ -38,7 +38,13 @@ class Jornada {
 class VentaPage extends StatefulWidget {
   final Map<String,dynamic> userData;
   final String token;
-  const VentaPage({super.key, required this.userData, required this.token});
+  final List<Map<String,dynamic>> jugadasIniciales;
+  const VentaPage({
+    super.key,
+    required this.userData,
+    required this.token,
+    this.jugadasIniciales = const [],
+  });
   @override State<VentaPage> createState() => _VentaPageState();
 }
 
@@ -79,6 +85,28 @@ class _VentaPageState extends State<VentaPage> {
         _preciosMap[key] = double.tryParse(p['precio'].toString()) ?? 0;
       }
       await _cargarLoterias(inicial: true);
+
+      // ── Pre-cargar jugadas copiadas desde lista ────
+      if (widget.jugadasIniciales.isNotEmpty) {
+        final lotId = _jornadasSelec.isNotEmpty ? _jornadaMap[_jornadasSelec.first] : null;
+        for (final d in widget.jugadasIniciales) {
+          final mod     = d['modalidad']?.toString() ?? '';
+          final numeros = d['numeros']?.toString()   ?? '';
+          final cant    = int.tryParse(d['cantidad']?.toString()  ?? '0') ?? 0;
+          if (mod.isEmpty || numeros.isEmpty || cant <= 0) continue;
+          final precio = _getPrecio(lotId, mod);
+          final monto  = precio > 0 ? precio * cant
+                       : (double.tryParse(d['monto']?.toString() ?? '0') ?? 0.0);
+          final existe = _jugadas.where((j) => j.modalidad == mod && j.numeros == numeros);
+          if (existe.isNotEmpty) {
+            existe.first.cantidad += cant;
+            existe.first.monto    += monto;
+          } else {
+            _jugadas.add(Jugada(modalidad: mod, numeros: numeros, cantidad: cant, monto: monto));
+          }
+        }
+      }
+
       setState(() => _loading = false);
     } catch (e) {
       setState(() { _loading = false; _msg = e.toString(); });
@@ -1065,4 +1093,3 @@ class _TicketDialog extends StatelessWidget {
   Widget _il(String t) => Padding(padding: const EdgeInsets.symmetric(vertical: 1),
     child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)));
 }
-
