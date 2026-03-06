@@ -292,41 +292,11 @@ class _VentaPageState extends State<VentaPage> {
         tickets.add(t);
       }
       if (!mounted) return;
-
-      // Igual que _abrirMix: showDialog devuelve las jugadas a reusar
-      final reusadas = await showDialog<List<Jugada>>(
+      await showDialog(
         context: context,
         barrierDismissible: false,
         builder: (_) => _TicketDialog(tickets: tickets, banca: _bancaNombre),
       );
-
-      // Si el vendedor presionó "Reusar", agregar como hace el Mix
-      if (reusadas != null && reusadas.isNotEmpty) {
-        setState(() {
-          for (final j in reusadas) {
-            // Recalcula precio con la lotería actualmente seleccionada
-            final lotId = _superPaleIds.isNotEmpty ? null
-                : (_jornadasSelec.isNotEmpty ? _jornadaMap[_jornadasSelec.first] : null);
-            final precio = _getPrecio(lotId, j.modalidad);
-            final monto  = precio > 0 ? precio * j.cantidad : j.monto;
-
-            final existe = _jugadas.where(
-                (x) => x.modalidad == j.modalidad && x.numeros == j.numeros);
-            if (existe.isNotEmpty) {
-              existe.first.cantidad += j.cantidad;
-              existe.first.monto    += monto;
-            } else {
-              _jugadas.add(Jugada(
-                modalidad: j.modalidad,
-                numeros:   j.numeros,
-                cantidad:  j.cantidad,
-                monto:     monto,
-              ));
-            }
-          }
-          _msg = "Jugadas cargadas ✓";
-        });
-      }
     } catch (e) { setState(() => _msg = "Error ticket: $e"); }
   }
 
@@ -1065,46 +1035,23 @@ class _TicketDialog extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 10)))),
             ]),
             const SizedBox(height: 6),
-            // Fila 2: Compartir PDF + Reusar Jugadas
-            Row(children: [
-              Expanded(child: ElevatedButton.icon(
-                onPressed: () async {
-                  final bytes = await _generatePdf();
-                  final filename = 'ticket_${p['numero_ticket']}.pdf';
-                  final xfile = XFile.fromData(bytes, mimeType: 'application/pdf', name: filename);
-                  await Share.shareXFiles([xfile], subject: "Ticket #${p['numero_ticket']}");
-                },
-                icon: const Icon(Icons.share, size: 16),
-                label: const Text("Compartir PDF"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF17A2B8), foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 10)))),
-              const SizedBox(width: 7),
-              Expanded(child: ElevatedButton.icon(
-                onPressed: () {
-                  // Devuelve las jugadas al padre vía pop — igual que Mix
-                  final raw = tickets.first['jugadas'] as List? ?? [];
-                  final jugadas = raw
-                    .map((d) => Jugada(
-                      modalidad: d['modalidad']?.toString() ?? '',
-                      numeros:   d['numeros']?.toString()   ?? '',
-                      cantidad:  int.tryParse(d['cantidad']?.toString() ?? '0') ?? 0,
-                      monto:     double.tryParse(d['monto']?.toString() ?? '0') ?? 0.0,
-                    ))
-                    .where((j) => j.modalidad.isNotEmpty && j.numeros.isNotEmpty)
-                    .toList();
-                  Navigator.pop(context, jugadas);
-                },
-                icon: const Icon(Icons.replay, size: 16),
-                label: const Text("Reusar"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6F42C1), foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 10)))),
-            ]),
+            // Fila 2: Compartir PDF
+            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+              onPressed: () async {
+                final bytes = await _generatePdf();
+                final filename = 'ticket_${p['numero_ticket']}.pdf';
+                final xfile = XFile.fromData(bytes, mimeType: 'application/pdf', name: filename);
+                await Share.shareXFiles([xfile], subject: "Ticket #${p['numero_ticket']}");
+              },
+              icon: const Icon(Icons.share, size: 16),
+              label: const Text("Compartir PDF"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF17A2B8), foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10)))),
             const SizedBox(height: 6),
             // Fila 3: Cerrar
             SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: () => Navigator.pop(context, null),
+              onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 11)),
