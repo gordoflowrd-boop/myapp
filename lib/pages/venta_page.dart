@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -143,6 +145,28 @@ class _VentaPageState extends State<VentaPage> {
     _numFocus.requestFocus();
   }
 
+  // ── URL base de la API ────────────────────────────
+  static const _apiBase = "https://superbett-api-production.up.railway.app/api";
+
+  /// POST directo que SIEMPRE devuelve el body JSON,
+  /// incluso cuando el servidor responde 4xx/5xx (ej. límite).
+  Future<Map<String,dynamic>> _post(String path, Map<String,dynamic> body) async {
+    final uri = Uri.parse('$_apiBase$path');
+    final resp = await http.post(uri,
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ${widget.token}',
+      },
+      body: jsonEncode(body),
+    );
+    // Siempre parsea el body, sin importar el status code
+    try {
+      return jsonDecode(resp.body) as Map<String,dynamic>;
+    } catch (_) {
+      return {'estado': 'error', 'mensaje': 'Respuesta inválida (${resp.statusCode})'};
+    }
+  }
+
   // ── Vender ────────────────────────────────────────
   Future<void> _vender() async {
     if (_jugadas.isEmpty) { setState(() => _msg = "Agregue jugadas"); return; }
@@ -153,16 +177,16 @@ class _VentaPageState extends State<VentaPage> {
     try {
       // SUPER PALÉ
       if (_superPaleIds.isNotEmpty) {
-        final res = await apiFetch('/tickets/super-pale', widget.token,
-            method: "POST", body: {"jornadas": _superPaleIds, "jugadas": maps});
-        if (!await _manejar(res, [])) return;
+        final res = await _post('/tickets/super-pale',
+            {"jornadas": _superPaleIds, "jugadas": maps});
+        if (!await _manejar(res)) return;
 
       // MÚLTIPLE
       } else if (_jornadasSelec.length > 1) {
         final nums = <dynamic>[];
         for (final jId in _jornadasSelec) {
-          final res = await apiFetch('/tickets', widget.token,
-              method: "POST", body: {"jornada_id": jId, "jugadas": maps});
+          final res = await _post('/tickets',
+              {"jornada_id": jId, "jugadas": maps});
           if (res['estado'] == 'limite') { _modalLimite(res['detalle']); return; }
           if (res['estado'] == 'error')  { setState(() => _msg = res['mensaje'] ?? "Error"); return; }
           nums.add(res['numero_ticket']);
@@ -172,15 +196,15 @@ class _VentaPageState extends State<VentaPage> {
 
       // NORMAL
       } else {
-        final res = await apiFetch('/tickets', widget.token,
-            method: "POST", body: {"jornada_id": _jornadasSelec.first, "jugadas": maps});
-        if (!await _manejar(res, [res['numero_ticket']])) return;
+        final res = await _post('/tickets',
+            {"jornada_id": _jornadasSelec.first, "jugadas": maps});
+        if (!await _manejar(res)) return;
       }
     } catch (e) { setState(() => _msg = "Error: $e"); }
   }
 
-  /// retorna true si OK
-  Future<bool> _manejar(Map<String,dynamic> res, List nums) async {
+  /// retorna true si OK, false si límite o error
+  Future<bool> _manejar(Map<String,dynamic> res) async {
     if (res['estado'] == 'limite') { _modalLimite(res['detalle']); return false; }
     if (res['estado'] == 'error')  { setState(() => _msg = res['mensaje'] ?? "Error"); return false; }
     final n = res['numero_ticket'];
@@ -941,20 +965,31 @@ class _TicketDialog extends StatelessWidget {
                   const Divider(color: Colors.grey),
                   // ── Encabezado tabla ───────────────
                   Row(children: const [
-                    SizedBox(width:26, child:Text("Tipo",  style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
-                    Expanded(child:Text("Jugada",          style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
-                    SizedBox(width:30, child:Text("Cant",  style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
-                    SizedBox(width:52, child:Text("Monto", style:TextStyle(fontWeight:FontWeight.bold, fontSize:11), textAlign:TextAlign.right)),
+                    SizedBox(width:38, child:Text("Tipo",
+                        overflow:TextOverflow.clip, maxLines:1,
+                        style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    Expanded(child:Text("Jugada",
+                        style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    SizedBox(width:38, child:Text("Cant",
+                        overflow:TextOverflow.clip, maxLines:1,
+                        style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
+                    SizedBox(width:56, child:Text("Monto",
+                        textAlign:TextAlign.right,
+                        style:TextStyle(fontWeight:FontWeight.bold, fontSize:11))),
                   ]),
                   const Divider(thickness: 1.5, color: Colors.black),
                   // ── Jugadas: Q primero, luego P, T ─
                   ...j.map((d) => Padding(padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(children: [
-                      SizedBox(width:26, child:Text(d['modalidad']?.toString()??'',
-                          style:const TextStyle(color:Color(0xFF007BFF), fontSize:11))),
-                      Expanded(child:Text(d['numeros']?.toString()??'', style:const TextStyle(fontSize:11))),
-                      SizedBox(width:30, child:Text(d['cantidad']?.toString()??'', style:const TextStyle(fontSize:11))),
-                      SizedBox(width:52, child:Text(
+                      SizedBox(width:38, child:Text(d['modalidad']?.toString()??'',
+                          overflow:TextOverflow.clip, maxLines:1,
+                          style:const TextStyle(color:Color(0xFF007BFF), fontSize:11, fontWeight:FontWeight.bold))),
+                      Expanded(child:Text(d['numeros']?.toString()??'',
+                          style:const TextStyle(fontSize:11, fontWeight:FontWeight.bold))),
+                      SizedBox(width:38, child:Text(d['cantidad']?.toString()??'',
+                          overflow:TextOverflow.clip, maxLines:1,
+                          style:const TextStyle(fontSize:11))),
+                      SizedBox(width:56, child:Text(
                         "\$${double.tryParse(d['monto']?.toString()??"0")?.toStringAsFixed(2)}",
                         textAlign:TextAlign.right, style:const TextStyle(fontSize:11))),
                     ]))),
