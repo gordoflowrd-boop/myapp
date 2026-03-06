@@ -292,36 +292,41 @@ class _VentaPageState extends State<VentaPage> {
         tickets.add(t);
       }
       if (!mounted) return;
-      await showDialog(context: context, barrierDismissible: false,
-        builder: (_) => _TicketDialog(
-          tickets: tickets,
-          banca: _bancaNombre,
-          onReusar: (jugadas) {
-            // Agrega las jugadas del ticket a la lista actual para re-vender
-            setState(() {
-              for (final j in jugadas) {
-                final lotId = _superPaleIds.isNotEmpty ? null
-                    : (_jornadasSelec.isNotEmpty ? _jornadaMap[_jornadasSelec.first] : null);
-                final precio = _getPrecio(lotId, j.modalidad);
-                final monto  = precio > 0 ? precio * j.cantidad : j.monto;
-                final existe = _jugadas.where(
-                    (x) => x.modalidad == j.modalidad && x.numeros == j.numeros);
-                if (existe.isNotEmpty) {
-                  existe.first.cantidad += j.cantidad;
-                  existe.first.monto    += monto;
-                } else {
-                  _jugadas.add(Jugada(
-                    modalidad: j.modalidad,
-                    numeros:   j.numeros,
-                    cantidad:  j.cantidad,
-                    monto:     monto,
-                  ));
-                }
-              }
-              _msg = "Jugadas cargadas ✓ — Edite y presione Vender";
-            });
-          },
-        ));
+
+      // Igual que _abrirMix: showDialog devuelve las jugadas a reusar
+      final reusadas = await showDialog<List<Jugada>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _TicketDialog(tickets: tickets, banca: _bancaNombre),
+      );
+
+      // Si el vendedor presionó "Reusar", agregar como hace el Mix
+      if (reusadas != null && reusadas.isNotEmpty) {
+        setState(() {
+          for (final j in reusadas) {
+            // Recalcula precio con la lotería actualmente seleccionada
+            final lotId = _superPaleIds.isNotEmpty ? null
+                : (_jornadasSelec.isNotEmpty ? _jornadaMap[_jornadasSelec.first] : null);
+            final precio = _getPrecio(lotId, j.modalidad);
+            final monto  = precio > 0 ? precio * j.cantidad : j.monto;
+
+            final existe = _jugadas.where(
+                (x) => x.modalidad == j.modalidad && x.numeros == j.numeros);
+            if (existe.isNotEmpty) {
+              existe.first.cantidad += j.cantidad;
+              existe.first.monto    += monto;
+            } else {
+              _jugadas.add(Jugada(
+                modalidad: j.modalidad,
+                numeros:   j.numeros,
+                cantidad:  j.cantidad,
+                monto:     monto,
+              ));
+            }
+          }
+          _msg = "Jugadas cargadas ✓";
+        });
+      }
     } catch (e) { setState(() => _msg = "Error ticket: $e"); }
   }
 
@@ -793,28 +798,13 @@ class _MixDialogState extends State<_MixDialog> {
   }
 }
 
-// Modelo liviano para pasar jugadas de vuelta al formulario
-class _JugadaReusar {
-  final String modalidad;
-  final String numeros;
-  final int    cantidad;
-  final double monto;
-  const _JugadaReusar({required this.modalidad, required this.numeros,
-                       required this.cantidad,  required this.monto});
-}
-
 // ═════════════════════════════════════════════════════
 // DIALOG: TICKET
 // ═════════════════════════════════════════════════════
 class _TicketDialog extends StatelessWidget {
   final List<Map<String,dynamic>> tickets;
   final String banca;
-  final void Function(List<_JugadaReusar>) onReusar;
-  const _TicketDialog({
-    required this.tickets,
-    required this.banca,
-    required this.onReusar,
-  });
+  const _TicketDialog({required this.tickets, required this.banca});
 
   // ── Orden fijo: Q → P → T → SP ────────────────────
   static const _modOrder = {'Q': 0, 'P': 1, 'T': 2, 'SP': 3};
@@ -1092,16 +1082,18 @@ class _TicketDialog extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(child: ElevatedButton.icon(
                 onPressed: () {
-                  // Carga las jugadas del ticket de vuelta al formulario de venta
-                  final jugadasRaw = tickets.first['jugadas'] as List? ?? [];
-                  final jugadas = jugadasRaw.map((d) => _JugadaReusar(
-                    modalidad: d['modalidad']?.toString() ?? '',
-                    numeros:   d['numeros']?.toString()   ?? '',
-                    cantidad:  int.tryParse(d['cantidad']?.toString() ?? '0') ?? 0,
-                    monto:     double.tryParse(d['monto']?.toString() ?? '0') ?? 0,
-                  )).where((j) => j.modalidad.isNotEmpty && j.numeros.isNotEmpty).toList();
-                  Navigator.pop(context);   // cierra el dialog primero
-                  onReusar(jugadas);        // luego pasa las jugadas al padre
+                  // Devuelve las jugadas al padre vía pop — igual que Mix
+                  final raw = tickets.first['jugadas'] as List? ?? [];
+                  final jugadas = raw
+                    .map((d) => Jugada(
+                      modalidad: d['modalidad']?.toString() ?? '',
+                      numeros:   d['numeros']?.toString()   ?? '',
+                      cantidad:  int.tryParse(d['cantidad']?.toString() ?? '0') ?? 0,
+                      monto:     double.tryParse(d['monto']?.toString() ?? '0') ?? 0.0,
+                    ))
+                    .where((j) => j.modalidad.isNotEmpty && j.numeros.isNotEmpty)
+                    .toList();
+                  Navigator.pop(context, jugadas);
                 },
                 icon: const Icon(Icons.replay, size: 16),
                 label: const Text("Reusar"),
@@ -1112,7 +1104,7 @@ class _TicketDialog extends StatelessWidget {
             const SizedBox(height: 6),
             // Fila 3: Cerrar
             SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, null),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 11)),
