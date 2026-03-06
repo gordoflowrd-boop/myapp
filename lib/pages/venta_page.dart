@@ -1065,3 +1065,4 @@ class _TicketDialog extends StatelessWidget {
   Widget _il(String t) => Padding(padding: const EdgeInsets.symmetric(vertical: 1),
     child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)));
 }
+
