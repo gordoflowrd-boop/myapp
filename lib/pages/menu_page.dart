@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_page.dart';
 import 'venta_page.dart';
 import 'lista_ventas_page.dart';
@@ -12,6 +13,14 @@ class MenuPage extends StatelessWidget {
   final Map<String, dynamic> userData;
   final String token;
   const MenuPage({super.key, required this.userData, required this.token});
+
+  Future<void> _logout(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    if (!context.mounted) return;
+    Navigator.pushReplacement(context,
+        MaterialPageRoute(builder: (_) => const LoginPage()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,8 +42,7 @@ class MenuPage extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const LoginPage())),
+            onPressed: () => _logout(context),
           ),
         ],
       ),
