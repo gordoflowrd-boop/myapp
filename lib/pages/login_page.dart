@@ -15,6 +15,20 @@ class _LoginPageState extends State<LoginPage> {
   final _pinCtrl  = TextEditingController();
   String _msg     = "Ingrese usuario y PIN";
   bool   _loading = false;
+  String _bancaNombre = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarBanca();
+  }
+
+  Future<void> _cargarBanca() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _bancaNombre = prefs.getString('banca_nombre') ?? '';
+    });
+  }
 
   @override
   void dispose() {
@@ -37,11 +51,16 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final prefs   = await SharedPreferences.getInstance();
       final apiBase = prefs.getString('api_base') ?? '';
+      final bancaId = prefs.getString('banca_id') ?? '';
 
       final r = await http.post(
         Uri.parse('$apiBase/api/auth/login'),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"username": user, "password": pin}),
+        body: jsonEncode({
+          "username": user,
+          "password": pin,
+          "banca_id": bancaId,  // restringe login a esta banca
+        }),
       );
       final data = jsonDecode(r.body) as Map<String, dynamic>;
 
@@ -82,6 +101,23 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 10),
             const Text("SUPERBETT POS",
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            // Nombre de la banca configurada
+            if (_bancaNombre.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.blueGrey.shade200),
+                ),
+                child: Text(_bancaNombre,
+                    style: TextStyle(
+                        color: Colors.blueGrey.shade700,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ),
+            ],
             const SizedBox(height: 10),
             Text(_msg, style: TextStyle(color: Colors.blueGrey.shade600)),
             const SizedBox(height: 30),
@@ -95,6 +131,7 @@ class _LoginPageState extends State<LoginPage> {
               controller: _pinCtrl,
               obscureText: true,
               keyboardType: TextInputType.number,
+              onSubmitted: (_) => _login(),
               decoration: const InputDecoration(
                   labelText: "PIN", border: OutlineInputBorder()),
             ),
