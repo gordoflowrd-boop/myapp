@@ -1,7 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 import 'menu_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -13,9 +13,9 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _userCtrl = TextEditingController();
   final _pinCtrl  = TextEditingController();
-  String _msg     = "Ingrese usuario y PIN";
-  bool   _loading = false;
+  String _msg         = '';
   String _bancaNombre = '';
+  bool   _loading     = false;
 
   @override
   void initState() {
@@ -25,9 +25,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _cargarBanca() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _bancaNombre = prefs.getString('banca_nombre') ?? '';
-    });
+    setState(() => _bancaNombre = prefs.getString('banca_nombre') ?? '');
   }
 
   @override
@@ -42,29 +40,57 @@ class _LoginPageState extends State<LoginPage> {
     final pin  = _pinCtrl.text.trim();
 
     if (user.isEmpty || pin.isEmpty) {
-      setState(() => _msg = "Ingrese usuario y PIN");
+      setState(() => _msg = 'Ingrese usuario y PIN');
       return;
     }
 
-    setState(() { _loading = true; _msg = "Validando..."; });
+    setState(() { _loading = true; _msg = 'Validando...'; });
 
     try {
       final prefs   = await SharedPreferences.getInstance();
-      final apiBase = prefs.getString('api_base') ?? '';
-      final bancaId = prefs.getString('banca_id') ?? '';
+      final apiBase = prefs.getString('api_base')     ?? '';
+      final codigo  = prefs.getString('banca_codigo') ?? '';
+      final ip      = prefs.getString('ip_local')     ?? '';
 
-      final r = await http.post(
+      // 1. Validar config de banca (codigo + IP)
+      final cfgRes = await http.get(
+        Uri.parse('$apiBase/api/config/$codigo?ip=${Uri.encodeComponent(ip)}'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (cfgRes.statusCode != 200) {
+        final err = jsonDecode(cfgRes.body);
+        setState(() {
+          _loading = false;
+          _msg = err['error'] ?? 'Error de configuración de banca';
+        });
+        return;
+      }
+
+      final config  = jsonDecode(cfgRes.body)['config'] as Map<String, dynamic>;
+      final bancaId = config['id'].toString();
+
+      await prefs.setString('banca_id',           bancaId);
+      await prefs.setString('banca_nombre',         config['nombre']        ?? '');
+      await prefs.setString('banca_nombre_ticket',  config['nombre_ticket'] ?? '');
+      await prefs.setInt('tiempo_anulacion',
+          (config['tiempo_anulacion'] as num?)?.toInt() ?? 5);
+
+      setState(() => _bancaNombre = config['nombre'] ?? '');
+
+      // 2. Login con banca_id validado
+      final loginRes = await http.post(
         Uri.parse('$apiBase/api/auth/login'),
-        headers: {"Content-Type": "application/json"},
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          "username": user,
-          "password": pin,
-          "banca_id": bancaId,  // restringe login a esta banca
+          'username': user,
+          'password': pin,
+          'banca_id': bancaId,
         }),
       );
-      final data = jsonDecode(r.body) as Map<String, dynamic>;
 
-      if (r.statusCode == 200) {
+      final data = jsonDecode(loginRes.body) as Map<String, dynamic>;
+
+      if (loginRes.statusCode == 200) {
         await prefs.setString('token', data['token'] ?? '');
         if (!mounted) return;
         Navigator.pushReplacement(
@@ -78,12 +104,12 @@ class _LoginPageState extends State<LoginPage> {
         );
       } else {
         setState(() {
-          _msg = data['error'] as String? ?? "Credenciales inválidas";
+          _msg = data['error'] as String? ?? 'Credenciales inválidas';
           _pinCtrl.clear();
         });
       }
     } catch (_) {
-      setState(() => _msg = "Error de conexión");
+      setState(() => _msg = 'Error de conexión');
     } finally {
       setState(() => _loading = false);
     }
@@ -95,61 +121,102 @@ class _LoginPageState extends State<LoginPage> {
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
-          child: Column(children: [
-            const Icon(Icons.account_balance_wallet,
-                size: 80, color: Colors.blueGrey),
-            const SizedBox(height: 10),
-            const Text("SUPERBETT POS",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            // Nombre de la banca configurada
-            if (_bancaNombre.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.blueGrey.shade200),
-                ),
-                child: Text(_bancaNombre,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+
+                // Título
+                const Text('SuperBett',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 36, fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A237E), letterSpacing: 1)),
+                const SizedBox(height: 6),
+
+                // Nombre de la banca
+                if (_bancaNombre.isNotEmpty)
+                  Text(_bancaNombre,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                        color: Colors.blueGrey.shade700,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-              ),
-            ],
-            const SizedBox(height: 10),
-            Text(_msg, style: TextStyle(color: Colors.blueGrey.shade600)),
-            const SizedBox(height: 30),
-            TextField(
-              controller: _userCtrl,
-              decoration: const InputDecoration(
-                  labelText: "Usuario", border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _pinCtrl,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              onSubmitted: (_) => _login(),
-              decoration: const InputDecoration(
-                  labelText: "PIN", border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 25),
-            _loading
-                ? const CircularProgressIndicator()
-                : SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _login,
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueGrey,
-                          foregroundColor: Colors.white),
-                      child: const Text("INGRESAR"),
+                        fontSize: 15,
+                        color: Colors.blueGrey.shade600,
+                        fontWeight: FontWeight.bold)),
+
+                const SizedBox(height: 36),
+
+                // Mensaje
+                if (_msg.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _msg == 'Validando...'
+                          ? Colors.blue.shade50
+                          : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: _msg == 'Validando...'
+                              ? Colors.blue.shade200
+                              : Colors.red.shade200),
                     ),
+                    child: Text(_msg,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _msg == 'Validando...'
+                              ? Colors.blue.shade700
+                              : Colors.red.shade700)),
                   ),
-          ]),
+
+                TextField(
+                  controller: _userCtrl,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Usuario',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: _pinCtrl,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  onSubmitted: (_) => _login(),
+                  decoration: const InputDecoration(
+                    labelText: 'PIN',
+                    prefixIcon: Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ElevatedButton(
+                        onPressed: _login,
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueGrey,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold)),
+                        child: const Text('INGRESAR'),
+                      ),
+
+                const SizedBox(height: 48),
+
+                const Text('v1.0.0',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ),
         ),
       ),
     );
