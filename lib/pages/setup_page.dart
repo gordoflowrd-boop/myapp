@@ -4,9 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Pantalla de configuración inicial del POS.
-/// Se muestra solo cuando no hay dominio/banca guardados.
-/// El vendedor ingresa: Dominio + Código de banca + IP fija.
 class SetupPage extends StatefulWidget {
   const SetupPage({super.key});
   @override
@@ -18,8 +15,10 @@ class _SetupPageState extends State<SetupPage> {
   final _codigoCtrl  = TextEditingController();
   final _ipCtrl      = TextEditingController();
 
-  bool   _cargando = false;
-  String _error    = '';
+  bool   _cargando    = false;
+  bool   _exito       = false;
+  String _error       = '';
+  String _bancaNombre = '';
 
   @override
   void dispose() {
@@ -38,56 +37,56 @@ class _SetupPageState extends State<SetupPage> {
       setState(() => _error = 'Todos los campos son requeridos');
       return;
     }
-
     if (!dominio.startsWith('http')) {
       setState(() => _error = 'El dominio debe comenzar con https://');
       return;
     }
 
-    setState(() { _cargando = true; _error = ''; });
+    setState(() { _cargando = true; _error = ''; _exito = false; });
 
     try {
       final url = Uri.parse('$dominio/api/config/$codigo?ip=${Uri.encodeComponent(ip)}');
-      final r   = await http.get(url).timeout(const Duration(seconds: 10));
+      final r   = await http.get(url).timeout(const Duration(seconds: 8));
       final data = jsonDecode(r.body);
 
       if (r.statusCode == 200) {
         final config = data['config'] as Map<String, dynamic>;
         final prefs  = await SharedPreferences.getInstance();
 
-        // Guardar configuración de la banca
-        await prefs.setString('api_base',          dominio);
-        await prefs.setString('banca_id',           config['id']           ?? '');
-        await prefs.setString('banca_codigo',        config['codigo']       ?? '');
-        await prefs.setString('banca_nombre',        config['nombre']       ?? '');
-        await prefs.setString('banca_nombre_ticket', config['nombre_ticket'] ?? '');
-        await prefs.setInt(   'tiempo_anulacion',
+        await prefs.setString('api_base',           dominio);
+        await prefs.setString('banca_id',            config['id']            ?? '');
+        await prefs.setString('banca_codigo',         config['codigo']        ?? '');
+        await prefs.setString('banca_nombre',         config['nombre']        ?? '');
+        await prefs.setString('banca_nombre_ticket',  config['nombre_ticket'] ?? '');
+        await prefs.setString('ip_local',             ip);
+        await prefs.setInt('tiempo_anulacion',
             (config['tiempo_anulacion'] as num?)?.toInt() ?? 5);
-        await prefs.setString('ip_local',            ip);
 
-        // Guardar límites si existen
-        if (config['limite_q'] != null)
-          await prefs.setDouble('limite_q', (config['limite_q'] as num).toDouble());
-        if (config['limite_p'] != null)
-          await prefs.setDouble('limite_p', (config['limite_p'] as num).toDouble());
-        if (config['limite_t'] != null)
-          await prefs.setDouble('limite_t', (config['limite_t'] as num).toDouble());
-        if (config['limite_sp'] != null)
-          await prefs.setDouble('limite_sp', (config['limite_sp'] as num).toDouble());
+        if (config['limite_q']  != null) await prefs.setDouble('limite_q',  (config['limite_q']  as num).toDouble());
+        if (config['limite_p']  != null) await prefs.setDouble('limite_p',  (config['limite_p']  as num).toDouble());
+        if (config['limite_t']  != null) await prefs.setDouble('limite_t',  (config['limite_t']  as num).toDouble());
+        if (config['limite_sp'] != null) await prefs.setDouble('limite_sp', (config['limite_sp'] as num).toDouble());
 
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
+        setState(() {
+          _cargando    = false;
+          _exito       = true;
+          _bancaNombre = config['nombre'] ?? '';
+        });
+
+        // Navegar al login después de 1.2 segundos
+        await Future.delayed(const Duration(milliseconds: 1200));
+        if (mounted) Navigator.pushReplacementNamed(context, '/login');
+
       } else {
         setState(() {
           _cargando = false;
-          _error = data['error'] ?? 'Error desconocido (${r.statusCode})';
+          _error    = data['error'] ?? 'Error (${r.statusCode})';
         });
       }
     } on Exception catch (e) {
       setState(() {
         _cargando = false;
-        _error = 'No se pudo conectar: ${e.toString().replaceAll('Exception: ', '')}';
+        _error    = 'No se pudo conectar: ${e.toString().replaceAll('Exception: ', '')}';
       });
     }
   }
@@ -103,14 +102,11 @@ class _SetupPageState extends State<SetupPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Logo / título
-              const Icon(Icons.casino_outlined,
-                  size: 64, color: Color(0xFF1A237E)),
+              const Icon(Icons.casino_outlined, size: 64, color: Color(0xFF1A237E)),
               const SizedBox(height: 8),
               const Text('SuperBett POS',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 26, fontWeight: FontWeight.bold,
+                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold,
                     color: Color(0xFF1A237E))),
               const SizedBox(height: 4),
               const Text('Configuración inicial',
@@ -118,7 +114,6 @@ class _SetupPageState extends State<SetupPage> {
                 style: TextStyle(fontSize: 14, color: Colors.grey)),
               const SizedBox(height: 32),
 
-              // Card
               Card(
                 elevation: 3,
                 shape: RoundedRectangleBorder(
@@ -129,7 +124,6 @@ class _SetupPageState extends State<SetupPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
 
-                      // Dominio
                       TextField(
                         controller: _dominioCtrl,
                         keyboardType: TextInputType.url,
@@ -143,7 +137,6 @@ class _SetupPageState extends State<SetupPage> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Código de banca
                       TextField(
                         controller: _codigoCtrl,
                         autocorrect: false,
@@ -161,13 +154,13 @@ class _SetupPageState extends State<SetupPage> {
                       ),
                       const SizedBox(height: 16),
 
-                      // IP
                       TextField(
                         controller: _ipCtrl,
                         keyboardType: TextInputType.number,
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                         ],
+                        onSubmitted: (_) => _conectar(),
                         decoration: const InputDecoration(
                           labelText: 'IP de esta banca',
                           hintText:  'Ej: 192.168.1.10',
@@ -175,9 +168,8 @@ class _SetupPageState extends State<SetupPage> {
                           border: OutlineInputBorder(),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
 
-                      // Info
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -186,14 +178,14 @@ class _SetupPageState extends State<SetupPage> {
                           border: Border.all(color: Colors.blue.shade200),
                         ),
                         child: Row(children: [
-                          Icon(Icons.info_outline,
-                              size: 16, color: Colors.blue.shade700),
+                          Icon(Icons.info_outline, size: 16,
+                              color: Colors.blue.shade700),
                           const SizedBox(width: 8),
                           Expanded(child: Text(
                             'El código y la IP deben coincidir '
                             'con los configurados en el panel admin.',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.blue.shade800),
+                            style: TextStyle(fontSize: 12,
+                                color: Colors.blue.shade800),
                           )),
                         ]),
                       ),
@@ -208,25 +200,62 @@ class _SetupPageState extends State<SetupPage> {
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: Colors.red.shade200),
                           ),
-                          child: Text(_error,
-                              style: TextStyle(color: Colors.red.shade700,
-                                  fontWeight: FontWeight.bold)),
+                          child: Row(children: [
+                            Icon(Icons.error_outline,
+                                color: Colors.red.shade700, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_error,
+                                style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13))),
+                          ]),
+                        ),
+                      ],
+
+                      // Éxito
+                      if (_exito) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.shade300),
+                          ),
+                          child: Row(children: [
+                            const Icon(Icons.check_circle,
+                                color: Colors.green, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(
+                              '✓ Conectado a $_bancaNombre',
+                              style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14),
+                            )),
+                          ]),
                         ),
                       ],
 
                       const SizedBox(height: 20),
 
-                      // Botón
                       ElevatedButton.icon(
-                        onPressed: _cargando ? null : _conectar,
+                        onPressed: (_cargando || _exito) ? null : _conectar,
                         icon: _cargando
                             ? const SizedBox(width: 18, height: 18,
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2))
-                            : const Icon(Icons.check_circle_outline),
-                        label: Text(_cargando ? 'Conectando...' : 'Conectar'),
+                            : _exito
+                                ? const Icon(Icons.check_circle)
+                                : const Icon(Icons.check_circle_outline),
+                        label: Text(_cargando
+                            ? 'Conectando...'
+                            : _exito ? 'Conectado ✓' : 'Conectar'),
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1A237E),
+                            backgroundColor: _exito
+                                ? Colors.green
+                                : const Color(0xFF1A237E),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.all(14),
                             textStyle: const TextStyle(
@@ -243,3 +272,4 @@ class _SetupPageState extends State<SetupPage> {
     ),
   );
 }
+
