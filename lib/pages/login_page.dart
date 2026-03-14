@@ -16,6 +16,13 @@ class _LoginPageState extends State<LoginPage> {
   String _msg     = "Ingrese usuario y PIN";
   bool   _loading = false;
 
+  @override
+  void dispose() {
+    _userCtrl.dispose();
+    _pinCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _login() async {
     final user = _userCtrl.text.trim().toLowerCase();
     final pin  = _pinCtrl.text.trim();
@@ -28,7 +35,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { _loading = true; _msg = "Validando..."; });
 
     try {
-      final prefs  = await SharedPreferences.getInstance();
+      final prefs   = await SharedPreferences.getInstance();
       final apiBase = prefs.getString('api_base') ?? '';
 
       final r = await http.post(
@@ -36,17 +43,23 @@ class _LoginPageState extends State<LoginPage> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"username": user, "password": pin}),
       );
-      final data = jsonDecode(r.body);
+      final data = jsonDecode(r.body) as Map<String, dynamic>;
 
       if (r.statusCode == 200) {
-        await prefs.setString('token', data['token']);
+        await prefs.setString('token', data['token'] ?? '');
         if (!mounted) return;
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => MenuPage(userData: data['usuario'], token: data['token']),
-        ));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MenuPage(
+              userData: data['usuario'] as Map<String, dynamic>,
+              token: data['token'] as String,
+            ),
+          ),
+        );
       } else {
         setState(() {
-          _msg = data['error'] ?? "Credenciales inválidas";
+          _msg = data['error'] as String? ?? "Credenciales inválidas";
           _pinCtrl.clear();
         });
       }
@@ -64,7 +77,8 @@ class _LoginPageState extends State<LoginPage> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(children: [
-            const Icon(Icons.account_balance_wallet, size: 80, color: Colors.blueGrey),
+            const Icon(Icons.account_balance_wallet,
+                size: 80, color: Colors.blueGrey),
             const SizedBox(height: 10),
             const Text("SUPERBETT POS",
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
@@ -73,26 +87,34 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 30),
             TextField(
               controller: _userCtrl,
-              decoration: const InputDecoration(labelText: "Usuario", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "Usuario", border: OutlineInputBorder()),
             ),
             const SizedBox(height: 15),
             TextField(
               controller: _pinCtrl,
               obscureText: true,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: "PIN", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "PIN", border: OutlineInputBorder()),
             ),
             const SizedBox(height: 25),
             _loading
-              ? const CircularProgressIndicator()
-              : SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: _login,
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueGrey, foregroundColor: Colors.white),
-                    child: const Text("INGRESAR"),
-                  )),
+                ? const CircularProgressIndicator()
+                : SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _login,
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueGrey,
+                          foregroundColor: Colors.white),
+                      child: const Text("INGRESAR"),
+                    ),
+                  ),
           ]),
         ),
+      ),
+    );
+  }
+}
