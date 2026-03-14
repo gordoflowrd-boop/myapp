@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers.dart';
 
 // ─────────────────────────────────────────────────────
@@ -183,13 +184,17 @@ class _VentaPageState extends State<VentaPage> {
     _numFocus.requestFocus();
   }
 
-  // ── URL base de la API ────────────────────────────
-  static const _apiBase = "https://superbett-api-production.up.railway.app/api";
+  // ── URL base de la API (dinámica desde setup) ─────
+  Future<String> _getApiBase() async {
+    final prefs = await SharedPreferences.getInstance();
+    return '${prefs.getString("api_base") ?? ""}/api';
+  }
 
   /// POST directo que SIEMPRE devuelve el body JSON,
   /// incluso cuando el servidor responde 4xx/5xx (ej. límite).
   Future<Map<String,dynamic>> _post(String path, Map<String,dynamic> body) async {
-    final uri = Uri.parse('$_apiBase$path');
+    final apiBase = await _getApiBase();
+    final uri = Uri.parse('$apiBase$path');
     final resp = await http.post(uri,
       headers: {
         'Content-Type':  'application/json',
