@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'menu_page.dart';
+import 'setup_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -16,6 +17,7 @@ class _LoginPageState extends State<LoginPage> {
   String _msg         = '';
   String _bancaNombre = '';
   bool   _loading     = false;
+  bool   _configurado = false;
 
   @override
   void initState() {
@@ -25,7 +27,12 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _cargarBanca() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _bancaNombre = prefs.getString('banca_nombre') ?? '');
+    final nombre = prefs.getString('banca_nombre') ?? '';
+    final codigo = prefs.getString('banca_codigo') ?? '';
+    setState(() {
+      _bancaNombre = nombre;
+      _configurado = codigo.isNotEmpty;
+    });
   }
 
   @override
@@ -35,10 +42,27 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<void> _abrirSetup() async {
+    final guardado = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const SetupPage()),
+    );
+    if (guardado == true) {
+      _userCtrl.clear();
+      _pinCtrl.clear();
+      setState(() { _msg = ''; _bancaNombre = ''; _configurado = false; });
+      await _cargarBanca();
+    }
+  }
+
   Future<void> _login() async {
     final user = _userCtrl.text.trim().toLowerCase();
     final pin  = _pinCtrl.text.trim();
 
+    if (!_configurado) {
+      setState(() => _msg = 'Primero configure la banca');
+      return;
+    }
     if (user.isEmpty || pin.isEmpty) {
       setState(() => _msg = 'Ingrese usuario y PIN');
       return;
@@ -52,7 +76,7 @@ class _LoginPageState extends State<LoginPage> {
       final codigo  = prefs.getString('banca_codigo') ?? '';
       final ip      = prefs.getString('ip_local')     ?? '';
 
-      // 1. Validar config de banca (codigo + IP)
+      // 1. Validar config banca
       final cfgRes = await http.get(
         Uri.parse('$apiBase/api/config/$codigo?ip=${Uri.encodeComponent(ip)}'),
       ).timeout(const Duration(seconds: 15));
@@ -61,7 +85,7 @@ class _LoginPageState extends State<LoginPage> {
         final err = jsonDecode(cfgRes.body);
         setState(() {
           _loading = false;
-          _msg = err['error'] ?? 'Error de configuración de banca';
+          _msg = err['error'] ?? 'Error de configuración';
         });
         return;
       }
@@ -77,7 +101,7 @@ class _LoginPageState extends State<LoginPage> {
 
       setState(() => _bancaNombre = config['nombre'] ?? '');
 
-      // 2. Login con banca_id validado
+      // 2. Login
       final loginRes = await http.post(
         Uri.parse('$apiBase/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
@@ -118,104 +142,128 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 20),
+      // resizeToAvoidBottomInset false = no se mueve con el teclado
+      resizeToAvoidBottomInset: false,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 48),
 
-                // Título
-                const Text('SuperBett',
+              // Título
+              const Text('SuperBett',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 36, fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E), letterSpacing: 1)),
+              const SizedBox(height: 8),
+
+              // Nombre banca o aviso de configuración
+              if (!_configurado)
+                const Text('Debe configurar la banca',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      fontSize: 36, fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E), letterSpacing: 1)),
-                const SizedBox(height: 6),
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13))
+              else if (_bancaNombre.isNotEmpty)
+                Text(_bancaNombre,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.blueGrey.shade600,
+                      fontWeight: FontWeight.bold)),
 
-                // Nombre de la banca
-                if (_bancaNombre.isNotEmpty)
-                  Text(_bancaNombre,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.blueGrey.shade600,
-                        fontWeight: FontWeight.bold)),
+              const SizedBox(height: 32),
 
-                const SizedBox(height: 36),
-
-                // Mensaje
-                if (_msg.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _msg == 'Validando...'
-                          ? Colors.blue.shade50
-                          : Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
+              // Mensaje
+              SizedBox(
+                height: 40,
+                child: _msg.isNotEmpty
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
                           color: _msg == 'Validando...'
-                              ? Colors.blue.shade200
-                              : Colors.red.shade200),
+                              ? Colors.blue.shade50 : Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _msg == 'Validando...'
+                                ? Colors.blue.shade200 : Colors.red.shade200),
+                        ),
+                        child: Text(_msg,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13,
+                              color: _msg == 'Validando...'
+                                  ? Colors.blue.shade700
+                                  : Colors.red.shade700)),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+
+              const SizedBox(height: 12),
+
+              TextField(
+                controller: _userCtrl,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  labelText: 'Usuario',
+                  prefixIcon: Icon(Icons.person_outline),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              TextField(
+                controller: _pinCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                onSubmitted: (_) => _login(),
+                decoration: const InputDecoration(
+                  labelText: 'PIN',
+                  prefixIcon: Icon(Icons.lock_outline),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _login,
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueGrey,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          textStyle: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text('INGRESAR'),
                     ),
-                    child: Text(_msg,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: _msg == 'Validando...'
-                              ? Colors.blue.shade700
-                              : Colors.red.shade700)),
-                  ),
 
-                TextField(
-                  controller: _userCtrl,
-                  autocorrect: false,
-                  decoration: const InputDecoration(
-                    labelText: 'Usuario',
-                    prefixIcon: Icon(Icons.person_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
-                TextField(
-                  controller: _pinCtrl,
-                  obscureText: true,
-                  keyboardType: TextInputType.number,
-                  onSubmitted: (_) => _login(),
-                  decoration: const InputDecoration(
-                    labelText: 'PIN',
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 24),
+              // Botón configurar
+              TextButton.icon(
+                onPressed: _abrirSetup,
+                icon: const Icon(Icons.settings_outlined,
+                    size: 16, color: Colors.blueGrey),
+                label: const Text('Configurar',
+                    style: TextStyle(color: Colors.blueGrey, fontSize: 13)),
+              ),
 
-                _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton(
-                        onPressed: _login,
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueGrey,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            textStyle: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
-                        child: const Text('INGRESAR'),
-                      ),
+              const Spacer(),
 
-                const SizedBox(height: 48),
-
-                const Text('v1.0.0',
+              // Versión abajo fija
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Text('v1.0.0',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
