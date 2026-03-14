@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-const String kApi = "https://superbett-api-production.up.railway.app/api";
+/// URL base dinámica — se lee de SharedPreferences (configurada en SetupPage)
+Future<String> getApiBase() async {
+  final prefs = await SharedPreferences.getInstance();
+  return '${prefs.getString('api_base') ?? ''}/api';
+}
 
 /// Petición autenticada a la API
 Future<Map<String, dynamic>> apiFetch(
@@ -11,6 +16,7 @@ Future<Map<String, dynamic>> apiFetch(
   String method = "GET",
   Map<String, dynamic>? body,
 }) async {
+  final kApi = await getApiBase();
   final uri = Uri.parse('$kApi$path');
   final headers = {
     "Content-Type": "application/json",
