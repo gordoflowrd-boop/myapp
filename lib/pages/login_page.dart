@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'menu_page.dart';
 
@@ -27,14 +28,18 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { _loading = true; _msg = "Validando..."; });
 
     try {
+      final prefs  = await SharedPreferences.getInstance();
+      final apiBase = prefs.getString('api_base') ?? '';
+
       final r = await http.post(
-        Uri.parse('https://superbett-api-production.up.railway.app/api/auth/login'),
+        Uri.parse('$apiBase/api/auth/login'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"username": user, "password": pin}),
       );
       final data = jsonDecode(r.body);
 
       if (r.statusCode == 200) {
+        await prefs.setString('token', data['token']);
         if (!mounted) return;
         Navigator.pushReplacement(context, MaterialPageRoute(
           builder: (_) => MenuPage(userData: data['usuario'], token: data['token']),
@@ -91,7 +96,3 @@ class _LoginPageState extends State<LoginPage> {
                   )),
           ]),
         ),
-      ),
-    );
-  }
-}
