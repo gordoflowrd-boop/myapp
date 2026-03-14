@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'login_page.dart';
 
 class SetupPage extends StatefulWidget {
   const SetupPage({super.key});
@@ -75,7 +76,12 @@ class _SetupPageState extends State<SetupPage> {
 
         // Navegar al login después de 1.2 segundos
         await Future.delayed(const Duration(milliseconds: 1200));
-        if (mounted) Navigator.pushReplacementNamed(context, '/login');
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+        }
 
       } else {
         setState(() {
@@ -272,4 +278,3 @@ class _SetupPageState extends State<SetupPage> {
     ),
   );
 }
-
