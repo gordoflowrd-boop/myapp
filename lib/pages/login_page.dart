@@ -160,22 +160,6 @@ class _LoginPageState extends State<LoginPage> {
                     color: Color(0xFF1A237E), letterSpacing: 1)),
               const SizedBox(height: 8),
 
-              // Nombre banca o aviso de configuración
-              if (!_configurado)
-                const Text('Debe configurar la banca',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13))
-              else if (_bancaNombre.isNotEmpty)
-                Text(_bancaNombre,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.blueGrey.shade600,
-                      fontWeight: FontWeight.bold)),
-
               const SizedBox(height: 32),
 
               // Mensaje
