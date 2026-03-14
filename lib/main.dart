@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'pages/login_page.dart';
+import 'pages/setup_page.dart';
 
-void main() => runApp(const SuperBettApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs   = await SharedPreferences.getInstance();
+  final apiBase = prefs.getString('api_base') ?? '';
+  runApp(SuperBettApp(setupCompleto: apiBase.isNotEmpty));
+}
 
 class SuperBettApp extends StatelessWidget {
-  const SuperBettApp({super.key});
+  final bool setupCompleto;
+  const SuperBettApp({super.key, required this.setupCompleto});
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +23,7 @@ class SuperBettApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
         useMaterial3: true,
       ),
-      home: const LoginPage(),
+      home: setupCompleto ? const LoginPage() : const SetupPage(),
     );
   }
 }
